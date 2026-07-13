@@ -33,6 +33,16 @@ flutter run -d chrome
 HTTPクライアントによるCORSブロック（フォント取得失敗）と同じ状況を
 再現するためのモード。
 
+`?only=broken` は、issue #4で判明した修正前のlawsuppli本番実装をそのまま
+再現するモード。`GoogleFonts.config.allowRuntimeFetching`は変更せず、
+アプリ全体を`http.runWithClient()`で`withCredentials=true`の
+`BrowserClient`（`api.lawsuppli.com`向けの認証付き通信用）配下で実行する。
+`google_fonts`パッケージ内部の`http.Client()`もこのゾーンに乗るため
+（`runWithClient`の仕様どおり）、`fonts.gstatic.com`へのリクエストが
+実際に資格情報付きで送信され、ブラウザのCORSチェックによって**本物の
+CORSエラー**として拒否される（`?only=blocked`のような設定フラグによる
+事前ブロックではない）。
+
 ## 検証で分かったこと（重要な注意）
 
 日本語システムフォント（Hiragino等）がインストール済みのmacOS実機Chromeでは、
@@ -77,11 +87,71 @@ Networkタブでは`notosanssc`・`notosanshk`に加えて`notosansjp`も
 つまり「macOS + Hiragino搭載環境だから見た目上は再現しない」という
 説明だけでは、本番の lawsuppli アプリで実際に目視できた症状を
 説明しきれておらず、`before`/`blocked`いずれのモードでも目視再現には
-至っていない。両者の違いの原因は未特定であり、次に検討すべき差分と
-しては、本番アプリの実際のFlutter Webレンダラー設定（CanvasKit以外の
-可能性）、本番で症状を確認した際のChromeバージョンや優先言語設定の
-詳細、フォントサイズ・行間・テキスト内容の違いなどが挙げられるが、
-いずれも未検証。
+至っていない。
+
+### issue #4: 本番の実装と修正内容
+
+issue #4 で報告された本番（修正後）の実装は次の2点を行っていた。
+
+```dart
+void main() {
+  usePathUrlStrategy();
+  // フォントはassets/google_fonts/にバンドル済みのため、実行時フェッチは行わない。
+  // (許可すると、api.lawsuppli.com向けのwithCredentials付きHTTPクライアントが
+  // fonts.gstatic.comへのリクエストにも使われ、CORSエラーになる)
+  GoogleFonts.config.allowRuntimeFetching = false;
+  http.runWithClient(
+    () => runApp(const LawSuppliApp()),
+    createCredentialedClient,
+  );
+}
+```
+
+```dart
+theme: ThemeData(
+  colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
+  useMaterial3: true,
+  appBarTheme: const AppBarTheme(foregroundColor: Colors.white),
+  textTheme: GoogleFonts.notoSansJpTextTheme(),
+),
+```
+
+修正前は `textTheme: GoogleFonts.notoSansJpTextTheme()` が設定されておらず、
+`allowRuntimeFetching`も`false`にしていなかったと考えられる。つまり
+アプリ全体が`withCredentials`クライアント配下で動く中、
+（アプリ全体のデフォルトフォントとしてではなく）実行時にGoogle Fonts CDN
+から個別にフォントを取得しようとして本物のCORSエラーで失敗し、かつ
+デフォルトの`textTheme`は日本語フォントを指定していなかった、という
+状態だったと推測される。`?only=broken`はこの状態を再現している。
+
+`?only=broken`をheadless Chrome（DevTools Protocolで検証、macOS,
+Hiragino搭載環境）で確認したところ、狙いどおり本物のCORSエラーが発生した。
+
+```
+Access to fetch at 'https://fonts.gstatic.com/s/a/<hash>.ttf' from origin
+'http://localhost:8642' has been blocked by CORS policy: The value of the
+'Access-Control-Allow-Origin' header in the response must not be the
+wildcard '*' when the request's credentials mode is 'include'.
+
+google_fonts was unable to load font NotoSansJP-Regular because the
+following exception occurred:
+Exception: Failed to load font with url https://fonts.gstatic.com/s/a/<hash>.ttf:
+ClientException: Failed to fetch, uri=https://fonts.gstatic.com/s/a/<hash>.ttf
+```
+
+`?only=blocked`（設定フラグによる事前ブロック）と異なり、こちらは実際に
+ネットワークリクエストが送信され、ブラウザのCORSチェックによって
+拒否されている点で本番の障害メカニズムを忠実に再現できている。
+ただし、この環境（Hiragino搭載macOS Chrome）では、このエラー発生後も
+句読点の目視でのズレは`before`/`after`/`blocked`と同様に再現しなかった
+（このマシンにインストール済みの日本語フォントへCanvasKit/OS側の
+フォントマッチングがフォールバックしているためと推測される）。
+
+両者（本プロジェクトでの目視非再現 と 本番での目視再現）の違いの原因は
+未特定であり、次に検討すべき差分としては、本番で症状を確認した際の
+Chromeバージョンや優先言語設定の詳細、OSにインストールされている
+フォント構成、フォントサイズ・行間・テキスト内容の違いなどが
+挙げられるが、いずれも未検証。
 
 ## 関連
 

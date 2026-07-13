@@ -38,6 +38,7 @@ dependencies:
   # Used to fetch Noto Sans JP from the Google Fonts CDN at runtime for the
   # "After" comparison in this repro.
   google_fonts: ^6.2.1
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:
