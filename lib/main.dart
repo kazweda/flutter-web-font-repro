@@ -8,6 +8,12 @@ import 'package:google_fonts/google_fonts.dart';
 /// middle dot "・") when the app relies on the default/fallback font
 /// instead of an explicitly-loaded Japanese font such as Noto Sans JP.
 void main() {
+  // ?only=blocked simulates the production CORS failure: notoSansJp() is
+  // requested but google_fonts is prevented from fetching it at runtime, so
+  // CanvasKit falls back exactly as if the network request had failed.
+  if (Uri.base.queryParameters['only'] == 'blocked') {
+    GoogleFonts.config.allowRuntimeFetching = false;
+  }
   runApp(const FontReproApp());
 }
 
@@ -49,10 +55,18 @@ class ComparisonPage extends StatelessWidget {
       description: 'GoogleFonts.notoSansJp() を明示指定。句読点が正しい位置（左下寄り）に表示される。',
       style: GoogleFonts.notoSansJp(fontSize: 22, height: 1.8),
     );
+    final blocked = _SampleCard(
+      label: 'Blocked: Noto Sans JP指定だがフェッチ失敗を模擬（本番CORSブロック相当）',
+      description:
+          'GoogleFonts.notoSansJp() を指定しているが allowRuntimeFetching=false '
+          'によりCDNから取得できない状態。lawsuppli本番のCORSブロックと同じ状況を再現。',
+      style: GoogleFonts.notoSansJp(fontSize: 22, height: 1.8),
+    );
 
     final cards = switch (only) {
       'before' => [before],
       'after' => [after],
+      'blocked' => [blocked],
       _ => [before, const SizedBox(height: 32), after],
     };
 
