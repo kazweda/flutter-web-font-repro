@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/browser_client.dart';
+import 'package:http/http.dart' as http;
 
 /// Repro for https://github.com/kazweda/lawsuppli/issues/188
 ///
@@ -8,7 +10,43 @@ import 'package:google_fonts/google_fonts.dart';
 /// middle dot "・") when the app relies on the default/fallback font
 /// instead of an explicitly-loaded Japanese font such as Noto Sans JP.
 void main() {
+  final only = Uri.base.queryParameters['only'];
+
+  // ?only=blocked simulates the production CORS failure: notoSansJp() is
+  // requested but google_fonts is prevented from fetching it at runtime, so
+  // CanvasKit falls back exactly as if the network request had failed.
+  if (only == 'blocked') {
+    GoogleFonts.config.allowRuntimeFetching = false;
+  }
+
+  // ?only=broken reproduces the actual production implementation (see
+  // lawsuppli issue #188, comment linking to this repro's issue #4): the
+  // whole app runs inside http.runWithClient() with a `withCredentials`
+  // BrowserClient, because api.lawsuppli.com requests need credentials.
+  // google_fonts' internal http.Client() picks up that same credentialed
+  // client (that's what runWithClient is for), so its request to
+  // fonts.gstatic.com is sent with `credentials: include` and is genuinely
+  // rejected by the browser's CORS check (gstatic doesn't allow credentialed
+  // cross-origin requests) instead of just being pre-blocked by a config
+  // flag as in ?only=blocked.
+  if (only == 'broken') {
+    http.runWithClient(
+      () => runApp(const FontReproApp()),
+      _createCredentialedClient,
+    );
+    return;
+  }
+
   runApp(const FontReproApp());
+}
+
+/// Mirrors lawsuppli's `createCredentialedClient` from issue #4: a
+/// BrowserClient with `withCredentials = true`, needed so requests to
+/// api.lawsuppli.com carry cookies/auth headers.
+http.Client _createCredentialedClient() {
+  final client = BrowserClient();
+  client.withCredentials = true;
+  return client;
 }
 
 const _sampleText =
@@ -49,10 +87,30 @@ class ComparisonPage extends StatelessWidget {
       description: 'GoogleFonts.notoSansJp() を明示指定。句読点が正しい位置（左下寄り）に表示される。',
       style: GoogleFonts.notoSansJp(fontSize: 22, height: 1.8),
     );
+    final blocked = _SampleCard(
+      label: 'Blocked: Noto Sans JP指定だがフェッチ失敗を模擬（本番CORSブロック相当）',
+      description:
+          'GoogleFonts.notoSansJp() を指定しているが allowRuntimeFetching=false '
+          'によりCDNから取得できない状態。lawsuppli本番のCORSブロックと同じ状況を再現。',
+      style: GoogleFonts.notoSansJp(fontSize: 22, height: 1.8),
+    );
+    final broken = _SampleCard(
+      label: 'Broken: 本番実装を再現（withCredentialsクライアントで実際にCORSブロック）',
+      description:
+          'issue #4 で判明した修正前のlawsuppli実装を再現。http.runWithClient() と '
+          'withCredentials=true のBrowserClientをアプリ全体に適用し（'
+          'api.lawsuppli.com向けの認証付き通信のため）、textThemeにNoto Sans JPは '
+          '設定していない。GoogleFonts.notoSansJp() のフェッチもこの資格情報付き'
+          'クライアント経由になり、fonts.gstatic.comへのリクエストが実際に'
+          'ブラウザのCORSチェックで拒否される。',
+      style: GoogleFonts.notoSansJp(fontSize: 22, height: 1.8),
+    );
 
     final cards = switch (only) {
       'before' => [before],
       'after' => [after],
+      'blocked' => [blocked],
+      'broken' => [broken],
       _ => [before, const SizedBox(height: 32), after],
     };
 
