@@ -153,6 +153,84 @@ Chromeバージョンや優先言語設定の詳細、OSにインストールさ
 フォント構成、フォントサイズ・行間・テキスト内容の違いなどが
 挙げられるが、いずれも未検証。
 
+後日、`flutter run -d chrome`の通常ブラウザ（headlessでない、同じmacOS +
+Hiragino搭載環境）でも`?only=broken`を検証したところ、同様に本物の
+CORSエラーが再現し、かつ句読点の目視ズレは再現しなかった。
+
+### まとめ: コード側の要因では説明がつかない
+
+`before` / `after` / `blocked` / `broken`（本物のCORSエラー確認済み） /
+`markdownBefore` / `markdownAfter` / `markdownRichBefore` /
+`markdownRichAfter` の8パターン全てで、このマシン（macOS + Hiragino搭載
+Chrome）では句読点のズレが目視再現しなかった。フォント指定の有無・
+CORSブロックの実態（設定フラグ vs 本物のCORSエラー）・`MarkdownBody`
+経由かどうか・見出しや太字や箇条書きの有無、というコード側の変数を
+一通り変えても再現しないため、**再現しないのはコードの構成ではなく、
+このマシンにインストール済みの日本語システムフォント（Hiragino）による
+OSレベルのフォールバックマスキングが支配的要因である**、という仮説が
+強く裏付けられた。
+
+次に検討すべきは、Hiraginoのような日本語システムフォントが入っていない
+環境（Linux上のheadless Chrome、Docker、CIランナーなど）でこれらの
+モードを再検証すること。
+
+## MarkdownBody経由の描画（issue #4のコメントを受けての追加検証）
+
+issue #4 のコメントで、症状が出ているlawsuppli本番実装ではAI応答テキストを
+素の`Text`ではなく`flutter_markdown_plus`の`MarkdownBody`（内部で
+`RichText`/`Text.rich`を生成）で描画していることが判明した。フォントは
+per-widgetではなく`textTheme: GoogleFonts.notoSansJpTextTheme()`でテーマ
+全体に適用されている。
+
+この構成の違い（`MarkdownBody`かどうか）が句読点位置のズレに関係するかを
+切り分けるため、`?only=markdownBefore` / `?only=markdownAfter`を追加した。
+
+- **MarkdownBefore**: `MarkdownBody`で描画、`styleSheet.p`にフォント指定なし
+- **MarkdownAfter**: `MarkdownBody`で描画、`styleSheet.p`に
+  `GoogleFonts.notoSansJp()`を明示指定
+
+既存の`before`/`after`（素の`Text`）と同一のサンプル文・フォントサイズ・
+行間で揃えてあるので、`MarkdownBody`版だけでズレが再現すれば、
+`RichText`/`Text.rich`の内部構成が要因の一つである可能性が高いと言える。
+
+**検証結果**: `?only=markdownBefore` / `?only=markdownAfter` いずれも
+このマシン（macOS + Hiragino搭載Chrome）では句読点のズレは目視再現
+しなかった。`before`/`after`/`blocked`/`broken`と同じ結果であり、
+このマシンでは素の`Text`でも既に再現しないため、`MarkdownBody`が
+原因かどうかについて肯定・否定いずれの結論も出せていない。
+
+なお両モードのNetworkタブには`notosanssc`・`notosanshk`・`notosansjp`
+のフェッチが確認でき、これは`?only=blocked`で確認済みのCanvasKit
+自身の自動CJKフォールバック取得機構によるもの（`MarkdownBody`固有の
+挙動ではない）と考えられる。
+
+### 見出し・太字・箇条書きを含むMarkdown（`?only=markdownRichBefore` / `?only=markdownRichAfter`）
+
+単一の連続した段落ではなく、見出し(`##`)・太字(`**...**`)・箇条書き(`-`)で
+テキストを分割した場合、`MarkdownBody`は複数のブロック/`TextSpan`を生成する。
+この構成差がレイアウト・グリフフォールバックに影響するかを確認するため
+追加したモード。`markdownBefore`/`markdownAfter`と同じ文章を、見出し・
+太字・箇条書きに分割した`_markdownRichSampleText`を使用する。
+
+**検証結果**: こちらもこのマシンでは句読点のズレは目視再現しなかった。
+
+### テーマ経由のフォント指定（`?only=markdownThemeFont`）
+
+issue #4 のコメントで共有された本番実装をよく見ると、`markdownBefore`/
+`markdownAfter`とは異なる重要な違いがある。本番ではNoto Sans JPを
+`MarkdownStyleSheet.p`に直接指定するのではなく、`ThemeData(textTheme:
+GoogleFonts.notoSansJpTextTheme())`で**アプリ全体**に適用しており、
+`MarkdownStyleSheet.p`自体は`TextStyle(height: 1.7, fontSize: 14)`と
+フォントファミリーを指定していない。
+
+これまでの`markdownBefore`（テーマにも日本語フォント設定が一切ない）
+とも`markdownAfter`（`styleSheet.p`に直接明示指定）とも異なる、
+「**テーマにはNoto Sans JPが設定されているが、MarkdownBody側の
+スタイルはそれを明示的に継承していない**」という本番と同じ構成を
+`?only=markdownThemeFont`で再現する。`flutter_markdown_plus`の
+`MarkdownStyleSheet.p`がテーマのフォントファミリーを実際に継承する
+のか、それとも継承されず無指定と同じ扱いになるのかを確認する狙い。
+
 ## 関連
 
 - 実際のアプリでの原因調査・修正: kazweda/lawsuppli PR
