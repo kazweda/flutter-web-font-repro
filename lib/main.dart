@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/browser_client.dart';
 import 'package:http/http.dart' as http;
@@ -53,14 +54,38 @@ const _sampleText =
     '吾輩は猫である。名前はまだ無い。どこで生れたかとんと見当がつかぬ。'
     '何でも薄暗いじめじめした所でニャーニャー泣いていた事だけは記憶している。';
 
+/// Same sentences as [_sampleText], but split across a heading, bold inline
+/// text, and a bullet list, so MarkdownBody builds multiple blocks/TextSpans
+/// instead of one contiguous paragraph.
+const _markdownRichSampleText = '''
+## 吾輩は猫である
+
+**吾輩は猫である。** 名前はまだ無い。どこで生れたかとんと見当がつかぬ。
+
+- 何でも薄暗いじめじめした所でニャーニャー泣いていた事だけは記憶している。
+''';
+
 class FontReproApp extends StatelessWidget {
   const FontReproApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // ?only=markdownThemeFont mirrors production: Noto Sans JP is applied
+    // app-wide via ThemeData.textTheme (not per-widget), while the
+    // MarkdownStyleSheet.p passed to MarkdownBody has no fontFamily of its
+    // own (see issue #4 comment's SampleBubble). This tests whether
+    // MarkdownBody actually inherits the theme's font in that setup.
+    final only = Uri.base.queryParameters['only'];
+    final textTheme = only == 'markdownThemeFont'
+        ? GoogleFonts.notoSansJpTextTheme()
+        : null;
     return MaterialApp(
       title: 'Flutter Web Font Repro',
-      theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
+      theme: ThemeData(
+        colorSchemeSeed: Colors.indigo,
+        useMaterial3: true,
+        textTheme: textTheme,
+      ),
       home: const ComparisonPage(),
     );
   }
@@ -105,12 +130,75 @@ class ComparisonPage extends StatelessWidget {
           'ブラウザのCORSチェックで拒否される。',
       style: GoogleFonts.notoSansJp(fontSize: 22, height: 1.8),
     );
+    final markdownBefore = _MarkdownSampleCard(
+      label: 'MarkdownBefore: flutter_markdown_plus + フォント未指定',
+      description:
+          'issue #4 のコメントで共有された本番実装のMarkdownBody部分を再現。'
+          'MarkdownBody（内部でRichText/Text.richを生成）で描画し、'
+          'styleSheet.pにフォント指定はない状態。',
+      styleSheet: MarkdownStyleSheet(
+        p: const TextStyle(fontSize: 22, height: 1.8),
+      ),
+    );
+    final markdownAfter = _MarkdownSampleCard(
+      label: 'MarkdownAfter: flutter_markdown_plus + Noto Sans JP明示指定',
+      description:
+          'MarkdownBodyのstyleSheet.pにGoogleFonts.notoSansJp()を明示指定した状態。'
+          'plainなTextのAfterカードと比べ、MarkdownBody特有の'
+          'RichText/Text.rich構成が句読点位置に影響するかを切り分ける。',
+      styleSheet: MarkdownStyleSheet(
+        p: GoogleFonts.notoSansJp(fontSize: 22, height: 1.8),
+      ),
+    );
+    final markdownRichBefore = _MarkdownSampleCard(
+      label: 'MarkdownRichBefore: 見出し・太字・箇条書き + フォント未指定',
+      description:
+          'markdownBeforeと同じ文章を見出し・太字・箇条書きに分割し、'
+          'MarkdownBodyが単一段落ではなく複数ブロック/TextSpanを生成する状態にした。'
+          'フォント未指定。',
+      data: _markdownRichSampleText,
+      styleSheet: MarkdownStyleSheet(
+        p: const TextStyle(fontSize: 22, height: 1.8),
+        h2: const TextStyle(fontSize: 22, height: 1.8),
+        listBullet: const TextStyle(fontSize: 22, height: 1.8),
+      ),
+    );
+    final markdownRichAfter = _MarkdownSampleCard(
+      label: 'MarkdownRichAfter: 見出し・太字・箇条書き + Noto Sans JP明示指定',
+      description:
+          'markdownRichBeforeと同じ構成でNoto Sans JPを明示指定した状態。',
+      data: _markdownRichSampleText,
+      styleSheet: MarkdownStyleSheet(
+        p: GoogleFonts.notoSansJp(fontSize: 22, height: 1.8),
+        h2: GoogleFonts.notoSansJp(fontSize: 22, height: 1.8),
+        listBullet: GoogleFonts.notoSansJp(fontSize: 22, height: 1.8),
+      ),
+    );
+    final markdownThemeFont = _MarkdownSampleCard(
+      label:
+          'MarkdownThemeFont: ThemeData.textThemeにNoto Sans JP、'
+          'styleSheet.pはフォント指定なし',
+      description:
+          '本番実装(issue #4コメント)を再現: Noto Sans JPはper-widgetではなく'
+          'ThemeData(textTheme: GoogleFonts.notoSansJpTextTheme())でアプリ全体に'
+          '適用し、MarkdownStyleSheet.pにはfontSize/heightのみ指定してフォント'
+          'ファミリーは指定しない。MarkdownBodyがこのテーマのフォントを'
+          '継承するのか、それとも無指定と同じ扱いになるのかを確認する。',
+      styleSheet: MarkdownStyleSheet(
+        p: const TextStyle(fontSize: 22, height: 1.8),
+      ),
+    );
 
     final cards = switch (only) {
       'before' => [before],
       'after' => [after],
       'blocked' => [blocked],
       'broken' => [broken],
+      'markdownBefore' => [markdownBefore],
+      'markdownAfter' => [markdownAfter],
+      'markdownRichBefore' => [markdownRichBefore],
+      'markdownRichAfter' => [markdownRichAfter],
+      'markdownThemeFont' => [markdownThemeFont],
       _ => [before, const SizedBox(height: 32), after],
     };
 
@@ -163,6 +251,50 @@ class _SampleCard extends StatelessWidget {
             Text(description, style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 16),
             Text(_sampleText, style: style),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Mirrors lawsuppli's production `SampleBubble` (issue #4 comment): renders
+/// the sample text through `MarkdownBody`, which builds RichText/Text.rich
+/// internally instead of a single plain `Text`, to test whether that
+/// rendering path affects punctuation glyph positioning.
+class _MarkdownSampleCard extends StatelessWidget {
+  const _MarkdownSampleCard({
+    required this.label,
+    required this.description,
+    required this.styleSheet,
+    this.data = _sampleText,
+  });
+
+  final String label;
+  final String description;
+  final MarkdownStyleSheet styleSheet;
+  final String data;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(description, style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 16),
+            MarkdownBody(data: data, styleSheet: styleSheet),
           ],
         ),
       ),
