@@ -174,6 +174,27 @@ class ComparisonPage extends StatelessWidget {
         listBullet: GoogleFonts.notoSansJp(fontSize: 22, height: 1.8),
       ),
     );
+    final raceBlockJp = _SampleCard(
+      label:
+          'RaceBlockJp: フォント未指定 + CanvasKit自動フォールバックのnotosansjpだけ取得ブロック',
+      description:
+          'issue #5 仮説2の検証。before同様フォント未指定だが、web/index.htmlで'
+          'window.fetchをパッチし、CanvasKitが自動取得するnotosansjp宛の'
+          'リクエストだけを恒久的に失敗させる（notosanssc/notosanshkは通常どおり'
+          '取得できる）。DevToolsのRequest Blockingを手動操作せずに、'
+          '「JP候補が存在しない状態」を再現するモード。',
+      style: const TextStyle(fontSize: 22, height: 1.8),
+    );
+    final raceBlockScHk = _SampleCard(
+      label:
+          'RaceBlockScHk: フォント未指定 + notosanssc/notosanshkだけ取得ブロック（対照実験）',
+      description:
+          'raceBlockJpの逆条件。notosanssc/notosanshk宛のリクエストをブロックし、'
+          'notosansjpだけがCanvasKitに取得される状態にする。この対照実験で句読点が'
+          '正しい位置に見えれば、raceBlockJpとの差分は「JP候補の有無」が'
+          '句読点のグリフ選択を左右することの裏付けになる。',
+      style: const TextStyle(fontSize: 22, height: 1.8),
+    );
     final markdownThemeFont = _MarkdownSampleCard(
       label:
           'MarkdownThemeFont: ThemeData.textThemeにNoto Sans JP、'
@@ -199,6 +220,8 @@ class ComparisonPage extends StatelessWidget {
       'markdownRichBefore' => [markdownRichBefore],
       'markdownRichAfter' => [markdownRichAfter],
       'markdownThemeFont' => [markdownThemeFont],
+      'raceBlockJp' => [raceBlockJp],
+      'raceBlockScHk' => [raceBlockScHk],
       _ => [before, const SizedBox(height: 32), after],
     };
 
