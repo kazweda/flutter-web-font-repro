@@ -41,6 +41,40 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <script>
+    // Repro for kazweda/flutter-web-font-repro issue #5, hypothesis 2: the
+    // punctuation glyph choice may depend on the arrival order/availability
+    // of CanvasKit's automatic CJK fallback font fetches (notosanssc /
+    // notosanshk / notosansjp), not on navigator.language per se. Instead of
+    // requiring manual DevTools Request Blocking, ?only=raceBlockJp /
+    // ?only=raceBlockScHk patch window.fetch here (before the Flutter engine
+    // and its font fallback manager start requesting fonts) to deterministically
+    // drop one side of the race.
+    (function () {
+      var only = new URLSearchParams(location.search).get('only');
+      var blockPattern = null;
+      if (only === 'raceBlockJp') {
+        // Only notosanssc/notosanshk are allowed to arrive; notosansjp never
+        // does, simulating CanvasKit's fallback picking a glyph before/without
+        // the Japanese candidate being available.
+        blockPattern = /notosansjp/i;
+      } else if (only === 'raceBlockScHk') {
+        // Inverse control: only notosansjp is allowed to arrive.
+        blockPattern = /notosans(sc|hk)/i;
+      }
+      if (blockPattern) {
+        var originalFetch = window.fetch.bind(window);
+        window.fetch = function (input, init) {
+          var url = typeof input === 'string' ? input : (input && input.url) || '';
+          if (blockPattern.test(url)) {
+            console.warn('[font-repro] blocking fetch to simulate fallback race:', url);
+            return Promise.reject(new TypeError('Failed to fetch: blocked by font-repro (' + only + ')'));
+          }
+          return originalFetch(input, init);
+        };
+      }
+    })();
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
