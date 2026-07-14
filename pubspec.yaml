@@ -40,11 +40,6 @@ dependencies:
   google_fonts: ^6.2.1
   http: ^1.6.0
 
-  # Mirrors lawsuppli's production usage (issue #4 comment) of MarkdownBody
-  # for AI response text, to test whether that RichText/Text.rich rendering
-  # path is a contributing factor to the punctuation position bug.
-  flutter_markdown_plus: ^1.0.7
-
 dev_dependencies:
   flutter_test:
     sdk: flutter
